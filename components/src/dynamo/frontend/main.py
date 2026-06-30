@@ -372,6 +372,12 @@ async def async_main():
     }
     if config.migration_max_seq_len is not None:
         kwargs["migration_max_seq_len"] = config.migration_max_seq_len
+    # HTTP topology gate. 0 means "don't gate"; only forward when non-zero so
+    # the Rust side sees None (disabled) by default.
+    if config.expected_prefill_workers > 0:
+        kwargs["expected_prefill_workers"] = config.expected_prefill_workers
+    if config.expected_decode_workers > 0:
+        kwargs["expected_decode_workers"] = config.expected_decode_workers
 
     if config.model_name:
         kwargs["model_name"] = config.model_name

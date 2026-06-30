@@ -77,6 +77,11 @@ pub struct LocalModelBuilder {
     namespace_prefix: Option<String>,
     media_decoder: Option<MediaDecoder>,
     media_fetcher: Option<MediaFetcher>,
+    /// HTTP topology gate: minimum prefill workers before inference is accepted.
+    /// See `HttpServiceConfig::expected_prefill_workers`.
+    expected_prefill_workers: Option<usize>,
+    /// HTTP topology gate: minimum decode workers before inference is accepted.
+    expected_decode_workers: Option<usize>,
 }
 
 impl Default for LocalModelBuilder {
@@ -109,6 +114,8 @@ impl Default for LocalModelBuilder {
             namespace_prefix: Default::default(),
             media_decoder: Default::default(),
             media_fetcher: Default::default(),
+            expected_prefill_workers: None,
+            expected_decode_workers: None,
         }
     }
 }
@@ -204,6 +211,20 @@ impl LocalModelBuilder {
         self.frontend_api_config
             .streaming_dispatch_mut()
             .set_reasoning_dispatch(enabled);
+        self
+    }
+
+    /// Minimum prefill-worker count required before the HTTP service accepts
+    /// inference traffic. `None` / `Some(0)` disables the gate.
+    pub fn expected_prefill_workers(&mut self, n: Option<usize>) -> &mut Self {
+        self.expected_prefill_workers = n;
+        self
+    }
+
+    /// Minimum decode-worker count required before the HTTP service accepts
+    /// inference traffic. `None` / `Some(0)` disables the gate.
+    pub fn expected_decode_workers(&mut self, n: Option<usize>) -> &mut Self {
+        self.expected_decode_workers = n;
         self
     }
 
@@ -363,6 +384,8 @@ impl LocalModelBuilder {
                 migration_limit: self.migration_limit,
                 migration_max_seq_len: self.migration_max_seq_len,
                 self_host_metadata: self.self_host_metadata,
+                expected_prefill_workers: self.expected_prefill_workers,
+                expected_decode_workers: self.expected_decode_workers,
             });
         }
 
@@ -419,6 +442,8 @@ impl LocalModelBuilder {
             migration_limit: self.migration_limit,
             migration_max_seq_len: self.migration_max_seq_len,
             self_host_metadata: self.self_host_metadata,
+            expected_prefill_workers: self.expected_prefill_workers,
+            expected_decode_workers: self.expected_decode_workers,
         })
     }
 }
@@ -443,6 +468,10 @@ pub struct LocalModel {
     migration_limit: u32,
     migration_max_seq_len: Option<u32>,
     self_host_metadata: bool,
+    /// HTTP topology gate: minimum prefill workers before inference is accepted.
+    expected_prefill_workers: Option<usize>,
+    /// HTTP topology gate: minimum decode workers before inference is accepted.
+    expected_decode_workers: Option<usize>,
 }
 
 impl LocalModel {
@@ -520,6 +549,16 @@ impl LocalModel {
         self.frontend_api_config
             .streaming_dispatch()
             .reasoning_dispatch()
+    }
+
+    /// HTTP topology gate: minimum prefill workers before inference is accepted.
+    pub fn expected_prefill_workers(&self) -> Option<usize> {
+        self.expected_prefill_workers
+    }
+
+    /// HTTP topology gate: minimum decode workers before inference is accepted.
+    pub fn expected_decode_workers(&self) -> Option<usize> {
+        self.expected_decode_workers
     }
 
     pub fn tls_cert_path(&self) -> Option<&Path> {

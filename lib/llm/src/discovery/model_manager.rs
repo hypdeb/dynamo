@@ -499,6 +499,24 @@ impl ModelManager {
             .any(|entry| entry.value().is_ready_to_serve())
     }
 
+    /// Sum `(prefill_workers, decode_workers)` across every registered model.
+    ///
+    /// Used by the HTTP service's topology gate (see
+    /// `HttpServiceConfig::{expected_prefill_workers, expected_decode_workers}`)
+    /// to decide whether enough workers are present to start accepting
+    /// inference traffic — the frontend can be configured to 503 every
+    /// `/v1/{chat/,}completions` request until both counts are met.
+    pub fn topology_worker_counts(&self) -> (usize, usize) {
+        let mut prefill = 0usize;
+        let mut decode = 0usize;
+        for entry in self.models.iter() {
+            let (p, d) = entry.value().topology_worker_counts();
+            prefill += p;
+            decode += d;
+        }
+        (prefill, decode)
+    }
+
     pub fn model_display_names(&self) -> HashSet<String> {
         self.models
             .iter()

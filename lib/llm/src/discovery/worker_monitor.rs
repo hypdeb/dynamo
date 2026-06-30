@@ -598,6 +598,28 @@ impl KvWorkerMonitor {
         );
     }
 
+    /// Number of currently available prefill worker instances, derived from
+    /// the registered prefill `Client`'s instance-availability watcher.
+    ///
+    /// Returns `None` when no prefill client has been set yet (pure
+    /// aggregated mode, or disagg before `PrefillRouter::activate` finishes
+    /// its rendezvous). Returns `Some(n)` once a prefill client is in place,
+    /// where `n` is the count this monitor would actually route prefill
+    /// traffic to right now.
+    ///
+    /// Used by `Model::topology_worker_counts` for the prefill side of the
+    /// HTTP topology gate. Reading the prefill *WorkerSet*'s own
+    /// `instance_count_rx` does not work here: that watcher is wired to the
+    /// `{namespace}:prefill` endpoint where the WorkerSet was created, but
+    /// the actual prefill instances are observed via the `Client` that the
+    /// prefill router registers here via [`set_prefill_client`].
+    pub fn prefill_worker_count(&self) -> Option<usize> {
+        let guard = self.prefill_client.read().unwrap();
+        guard
+            .as_ref()
+            .map(|client| client.instance_avail_watcher().borrow().len())
+    }
+
     /// Get the current active decode blocks threshold, if configured.
     pub fn active_decode_blocks_threshold(&self) -> Option<f64> {
         self.thresholds

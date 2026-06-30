@@ -561,13 +561,18 @@ pub(crate) struct EntrypointArgs {
     migration_max_seq_len: Option<u32>,
     chat_engine_factory: Option<PyEngineFactory>,
     aic_perf_config: Option<AicPerfConfig>,
+    /// HTTP topology gate: minimum prefill workers before inference is accepted.
+    /// See `HttpServiceConfig::expected_prefill_workers` in the Rust LLM crate.
+    expected_prefill_workers: Option<usize>,
+    /// HTTP topology gate: minimum decode workers before inference is accepted.
+    expected_decode_workers: Option<usize>,
 }
 
 #[pymethods]
 impl EntrypointArgs {
     #[allow(clippy::too_many_arguments)]
     #[new]
-    #[pyo3(signature = (engine_type, model_path=None, model_name=None, endpoint_id=None, template_file=None, router_config=None, kv_cache_block_size=None, http_host=None, http_port=None, http_metrics_port=None, tls_cert_path=None, tls_key_path=None, extra_engine_args=None, mocker_engine_args=None, runtime_config=None, namespace=None, namespace_prefix=None, is_prefill=false, is_decode=false, migration_limit=0, migration_max_seq_len=None, chat_engine_factory=None, aic_perf_config=None, *, metrics_prefix=None, enable_anthropic_api=None, strip_anthropic_preamble=None, enable_streaming_tool_dispatch=None, enable_streaming_reasoning_dispatch=None, tokenizer_backend=None))]
+    #[pyo3(signature = (engine_type, model_path=None, model_name=None, endpoint_id=None, template_file=None, router_config=None, kv_cache_block_size=None, http_host=None, http_port=None, http_metrics_port=None, tls_cert_path=None, tls_key_path=None, extra_engine_args=None, mocker_engine_args=None, runtime_config=None, namespace=None, namespace_prefix=None, is_prefill=false, is_decode=false, migration_limit=0, migration_max_seq_len=None, chat_engine_factory=None, aic_perf_config=None, *, metrics_prefix=None, enable_anthropic_api=None, strip_anthropic_preamble=None, enable_streaming_tool_dispatch=None, enable_streaming_reasoning_dispatch=None, tokenizer_backend=None, expected_prefill_workers=None, expected_decode_workers=None))]
     pub fn new(
         py: Python<'_>,
         engine_type: EngineType,
@@ -599,6 +604,8 @@ impl EntrypointArgs {
         enable_streaming_tool_dispatch: Option<bool>,
         enable_streaming_reasoning_dispatch: Option<bool>,
         tokenizer_backend: Option<String>,
+        expected_prefill_workers: Option<usize>,
+        expected_decode_workers: Option<usize>,
     ) -> PyResult<Self> {
         let endpoint_id_obj: Option<EndpointId> = endpoint_id.as_deref().map(EndpointId::from);
         if (tls_cert_path.is_some() && tls_key_path.is_none())
@@ -672,6 +679,8 @@ impl EntrypointArgs {
             migration_max_seq_len,
             chat_engine_factory,
             aic_perf_config,
+            expected_prefill_workers,
+            expected_decode_workers,
         })
     }
 }
@@ -720,7 +729,9 @@ pub fn make_engine<'p>(
         .extra_engine_args(args.extra_engine_args.clone())
         .runtime_config(args.runtime_config.clone().inner)
         .namespace(args.namespace.clone())
-        .namespace_prefix(args.namespace_prefix.clone());
+        .namespace_prefix(args.namespace_prefix.clone())
+        .expected_prefill_workers(args.expected_prefill_workers)
+        .expected_decode_workers(args.expected_decode_workers);
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         if let Some(model_path) = args.model_path.clone() {
             let local_path = if model_path.exists() {

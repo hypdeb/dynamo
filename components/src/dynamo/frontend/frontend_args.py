@@ -73,6 +73,13 @@ class FrontendConfig(RouterConfigBase, KvRouterConfigBase, AicPerfConfigBase):
     grpc_metrics_port: int
     dump_config_to: Optional[str]
 
+    # HTTP topology gate (benchmark-only knob). When >0, every
+    # /v1/{chat/,}completions request returns 503 until the discovered worker
+    # population reaches both thresholds. Lets benchmarks avoid measuring
+    # half-up disaggregated deployments. 0 disables the gate for that role.
+    expected_prefill_workers: int
+    expected_decode_workers: int
+
     discovery_backend: str
     request_plane: str
     event_plane: Optional[str] = None
@@ -109,6 +116,10 @@ class FrontendConfig(RouterConfigBase, KvRouterConfigBase, AicPerfConfigBase):
             raise ValueError(
                 f"--migration-max-seq-len must be between 1 and {_U32_MAX}"
             )
+        if self.expected_prefill_workers < 0:
+            raise ValueError("--expected-prefill-workers must be >= 0")
+        if self.expected_decode_workers < 0:
+            raise ValueError("--expected-decode-workers must be >= 0")
         if self.min_initial_workers < 0:
             raise ValueError("--router-min-initial-workers must be >= 0")
         if self.session_affinity_ttl_secs is not None and not (
@@ -289,6 +300,34 @@ class FrontendArgGroup(ArgGroup):
                 "Once the accumulated token count exceeds this limit, the request becomes "
                 "non-migratable. Prevents unbounded memory growth from caching long sequences. "
                 "Default: no limit."
+            ),
+            arg_type=int,
+        )
+
+        add_argument(
+            g,
+            flag_name="--expected-prefill-workers",
+            env_var="DYN_EXPECTED_PREFILL_WORKERS",
+            default=0,
+            help=(
+                "Minimum number of prefill workers required before the HTTP service "
+                "accepts inference traffic. While the discovered count is below this "
+                "threshold, every /v1/{chat/,}completions request returns 503 with a "
+                "body describing the gap. 0 disables the gate (default). Intended for "
+                "benchmark setups that must avoid measuring half-up disaggregated "
+                "deployments. Pair with --expected-decode-workers."
+            ),
+            arg_type=int,
+        )
+        add_argument(
+            g,
+            flag_name="--expected-decode-workers",
+            env_var="DYN_EXPECTED_DECODE_WORKERS",
+            default=0,
+            help=(
+                "Minimum number of decode workers required before the HTTP service "
+                "accepts inference traffic. 0 disables the gate (default). See "
+                "--expected-prefill-workers."
             ),
             arg_type=int,
         )

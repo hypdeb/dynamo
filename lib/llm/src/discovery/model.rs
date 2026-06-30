@@ -779,6 +779,42 @@ impl Model {
             .sum()
     }
 
+    /// Return `(prefill_workers, decode_workers)` for this model's currently
+    /// registered topology.
+    ///
+    /// **Decode** count: sum of `worker_count()` across every WorkerSet that
+    /// advertises a chat or completions engine. Each WorkerSet's count comes
+    /// from its `instance_count_rx`, which is wired to the decode endpoint.
+    ///
+    /// **Prefill** count: sum of `KvWorkerMonitor::prefill_worker_count()`
+    /// across every WorkerSet whose monitor has a registered prefill `Client`.
+    /// This is the *only* place in the model that observes the live prefill
+    /// instance population — the standalone prefill WorkerSet's own
+    /// `instance_count_rx` is wired to a different etcd endpoint and stays at
+    /// zero even when prefill workers are healthy and routable. The prefill
+    /// `Client` is installed onto the decode WorkerSet's monitor by
+    /// `PrefillRouter::activate` (see
+    /// `kv_router/prefill_router/activation.rs::register_prefill_client`).
+    ///
+    /// Used by the HTTP `topology_ready` gate. WorkerSets that are neither
+    /// prefill nor decode (pure embeddings, images, etc.) do not contribute.
+    pub fn topology_worker_counts(&self) -> (usize, usize) {
+        let mut prefill = 0usize;
+        let mut decode = 0usize;
+        for entry in self.worker_sets.iter() {
+            let ws = entry.value();
+            if ws.has_decode_engine() {
+                decode += ws.worker_count();
+            }
+            if let Some(monitor) = ws.worker_monitor.as_ref() {
+                if let Some(n) = monitor.prefill_worker_count() {
+                    prefill += n;
+                }
+            }
+        }
+        (prefill, decode)
+    }
+
     // -- Internal helpers --
 
     /// Return the appropriate error when no servable WorkerSet was found.

@@ -70,6 +70,13 @@ pub async fn run_with_frontend_route_extensions(
     http_service_builder = http_service_builder
         .metrics_config(local_model.metrics_config().clone())
         .frontend_api_config(local_model.frontend_api_config().clone());
+    // Topology gate: when set, /v1/{chat/,}completions returns 503 until the
+    // registered worker counts meet both thresholds. Used by benchmark
+    // pipelines to avoid measuring half-up disagg deployments.
+    http_service_builder = http_service_builder
+        .expected_prefill_workers(local_model.expected_prefill_workers());
+    http_service_builder = http_service_builder
+        .expected_decode_workers(local_model.expected_decode_workers());
     // Inject the DRT's metrics registry so that component-scoped metrics
     // (e.g. KvIndexerMetrics) are exposed (default port 8000 if not overridden).
     http_service_builder =

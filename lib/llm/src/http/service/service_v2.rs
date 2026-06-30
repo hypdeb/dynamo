@@ -105,6 +105,19 @@ pub struct State {
     // Frontend API behavior read by request handlers after the service is built.
     frontend_api_config: FrontendApiConfig,
     nvext_enabled: bool,
+    expected_prefill_workers: Option<usize>,
+    expected_decode_workers: Option<usize>,
+}
+
+/// Reason the inference handlers are not yet accepting traffic. Surfaced by
+/// [`State::topology_ready`] and rendered by `check_ready` into a 503 with a
+/// descriptive body so benchmark clients can wait deterministically.
+#[derive(Debug, Clone, Copy)]
+pub struct TopologyGap {
+    pub expected_prefill: usize,
+    pub got_prefill: usize,
+    pub expected_decode: usize,
+    pub got_decode: usize,
 }
 
 /// Typed config needed only to construct HTTP shared state.
@@ -115,6 +128,8 @@ struct StateConfig {
     metrics_config: MetricsConfig,
     frontend_api_config: FrontendApiConfig,
     nvext_enabled: bool,
+    expected_prefill_workers: Option<usize>,
+    expected_decode_workers: Option<usize>,
 }
 
 /// Lifecycle stage for the HTTP frontend.
@@ -381,7 +396,30 @@ impl State {
             },
             cancel_token,
             frontend_api_config: config.frontend_api_config,
+            expected_prefill_workers: config.expected_prefill_workers,
+            expected_decode_workers: config.expected_decode_workers,
         }
+    }
+
+    /// Returns `Ok(())` if the registered worker topology meets the configured
+    /// minimums, or `Err(TopologyGap)` describing the shortfall otherwise.
+    /// When neither minimum is set, this is a free `Ok(())`.
+    pub fn topology_ready(&self) -> Result<(), TopologyGap> {
+        let want_prefill = self.expected_prefill_workers.unwrap_or(0);
+        let want_decode = self.expected_decode_workers.unwrap_or(0);
+        if want_prefill == 0 && want_decode == 0 {
+            return Ok(());
+        }
+        let (got_prefill, got_decode) = self.manager.topology_worker_counts();
+        if got_prefill < want_prefill || got_decode < want_decode {
+            return Err(TopologyGap {
+                expected_prefill: want_prefill,
+                got_prefill,
+                expected_decode: want_decode,
+                got_decode,
+            });
+        }
+        Ok(())
     }
 
     /// Get the Prometheus [`Metrics`] object which tracks request counts and inflight requests
@@ -607,6 +645,19 @@ pub struct HttpServiceConfig {
     /// Distributed runtime used by the RL worker discovery API.
     #[builder(default = "None")]
     runtime: Option<Arc<DistributedRuntime>>,
+
+    /// Minimum number of prefill workers required before inference handlers
+    /// accept traffic. While the count is below this threshold, every
+    /// inference request returns 503 with a descriptive `TopologyGap` body.
+    /// `None` / `Some(0)` disables the gate. Used by benchmark setups that
+    /// must avoid measuring half-up topologies.
+    #[builder(default = "None")]
+    expected_prefill_workers: Option<usize>,
+
+    /// Minimum number of decode workers required before inference handlers
+    /// accept traffic. See [`expected_prefill_workers`](Self::expected_prefill_workers).
+    #[builder(default = "None")]
+    expected_decode_workers: Option<usize>,
 }
 
 fn default_rl_port() -> u16 {
@@ -977,6 +1028,8 @@ impl HttpServiceConfigBuilder {
                 metrics_config,
                 frontend_api_config,
                 nvext_enabled,
+                expected_prefill_workers: config.expected_prefill_workers,
+                expected_decode_workers: config.expected_decode_workers,
             },
         ));
         state

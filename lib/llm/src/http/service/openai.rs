@@ -2749,6 +2749,26 @@ pub(crate) fn check_ready(state: &Arc<service_v2::State>) -> Result<(), ErrorRes
     if !state.is_ready() {
         return Err(ErrorMessage::_service_unavailable());
     }
+    if let Err(gap) = state.topology_ready() {
+        let code = StatusCode::SERVICE_UNAVAILABLE;
+        let error_type = map_error_code_to_error_type(code);
+        return Err((
+            code,
+            Json(ErrorMessage {
+                message: format!(
+                    "Expected topology not ready: registered {got_prefill} prefill / \
+                     {got_decode} decode workers, require >= {expected_prefill} / >= \
+                     {expected_decode}",
+                    got_prefill = gap.got_prefill,
+                    got_decode = gap.got_decode,
+                    expected_prefill = gap.expected_prefill,
+                    expected_decode = gap.expected_decode,
+                ),
+                error_type,
+                code: code.as_u16(),
+            }),
+        ));
+    }
     Ok(())
 }
 
