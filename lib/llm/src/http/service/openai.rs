@@ -2766,6 +2766,7 @@ pub(crate) fn check_ready(state: &Arc<service_v2::State>) -> Result<(), ErrorRes
                 ),
                 error_type,
                 code: code.as_u16(),
+                details: None,
             }),
         ));
     }
